@@ -321,6 +321,11 @@ body.night-mode .deck-shuffle-btn:hover{color:#FFD86B;background:radial-gradient
 
 /* Section progress on home */
 .section-progress{margin:20px 16px 0;max-width:500px;margin-left:auto;margin-right:auto;display:flex;flex-direction:column;gap:8px}
+.section-toggle{display:inline-flex;align-items:center;gap:6px;margin-top:10px;padding:6px 10px;background:transparent;border:1px solid rgba(43,76,126,.18);border-radius:14px;font-size:11px;font-weight:600;color:var(--sky);cursor:pointer;transition:background .2s,color .2s,border-color .2s;font-family:inherit;letter-spacing:.2px}
+.section-toggle:hover{background:rgba(43,76,126,.06);color:var(--navy);border-color:rgba(43,76,126,.35)}
+.section-toggle-chev{display:inline-block;font-size:10px;transition:transform .3s ease}
+.section-toggle[aria-expanded="true"] .section-toggle-chev{transform:rotate(180deg)}
+.section-progress-collapsed{display:none !important}
 .section-prog-row{display:flex;align-items:center;gap:10px;font-size:12px;font-weight:600}
 .section-prog-row .sec-name{width:90px;color:var(--navy);text-align:right}
 .section-prog-row .prog-bar{flex:1;height:8px;background:rgba(43,76,126,.08);border-radius:4px;overflow:hidden}
@@ -573,10 +578,21 @@ body.night-mode .mode-card h3{color:#E8EEFF}
 body.night-mode .mode-card p{color:#8FA8C9}
 body.night-mode .mode-card:hover{border-color:#F5A623}
 body.night-mode .progress-outer{background:rgba(255,255,255,.08)}
-body.night-mode .home-progress h4{color:#8FA8C9}
+body.night-mode .home-progress h4{color:#C8D4E8}
 body.night-mode .section-prog-row .sec-name{color:#E5E9F2}
 body.night-mode .section-prog-row .prog-bar{background:rgba(255,255,255,.08)}
 body.night-mode .section-prog-row .sec-pct{color:#8FA8C9}
+/* Section-breakdown toggle (home screen) */
+body.night-mode .section-toggle{border-color:rgba(255,255,255,.18);color:#8FA8C9;background:rgba(255,255,255,.04)}
+body.night-mode .section-toggle:hover{background:rgba(255,216,107,.08);color:#FFD86B;border-color:rgba(255,216,107,.4)}
+/* Settings screen in night mode — make card heading text dark/readable on the white card,
+   and darken the secondary blurb so it doesn't vanish on white. */
+body.night-mode #settingsScreen .card{background:#172036;color:#E5E9F2;box-shadow:0 6px 20px rgba(0,0,0,.35)}
+body.night-mode #settingsScreen .settings-row{border-bottom-color:rgba(255,255,255,.08)}
+body.night-mode #settingsScreen .settings-row strong{color:#E8EEFF}
+body.night-mode #settingsScreen .settings-row span{color:#8FA8C9}
+body.night-mode #settingsScreen .settings-row span[style*="gold"]{color:#FFD86B !important}
+body.night-mode #settingsScreen .copy-footer{color:#8FA8C9}
 body.night-mode .home-time{color:#8FA8C9}
 body.night-mode .card-face-back{background:linear-gradient(135deg,#1a2440,#222C4A);color:#E5E9F2;border-color:#F5A623}
 body.night-mode .card-face-back .formula-display{color:#FFD86B}
@@ -1002,9 +1018,13 @@ body.night-mode .scribbler-handle{background:linear-gradient(135deg,#172036 0%,#
     <div class="home-progress" id="homeProgressWrap">
       <h4>Confidence — <span id="homePct">100</span>% <span style="font-size:11px;color:var(--sky);font-weight:500">(formulas not in your Tough list)</span></h4>
       <div class="progress-outer"><div class="progress-inner" id="homeBar" style="width:0%"></div></div>
+      <button class="section-toggle" id="sectionToggleBtn" onclick="toggleSectionBreakdown()" aria-expanded="false" aria-controls="sectionProgressArea">
+        <span id="sectionToggleLabel">Show section breakdown</span>
+        <span class="section-toggle-chev" aria-hidden="true">▾</span>
+      </button>
     </div>
 
-    <div class="section-progress" id="sectionProgressArea"></div>
+    <div class="section-progress section-progress-collapsed" id="sectionProgressArea" hidden></div>
 
     <div class="home-time" id="homeTime"></div>
 
@@ -2249,6 +2269,22 @@ function renderHome() {
       <span class="sec-pct">${secFormulas.length}</span>
     </div>`;
   }).join('');
+  // Restore user's preferred breakdown state (collapsed by default so Formula Recall is the hero)
+  const sectionToggleBtn = document.getElementById('sectionToggleBtn');
+  const sectionToggleLabel = document.getElementById('sectionToggleLabel');
+  if (sectionToggleBtn && sectionToggleLabel) {
+    if (state.sectionBreakdownOpen) {
+      area.classList.remove('section-progress-collapsed');
+      area.removeAttribute('hidden');
+      sectionToggleBtn.setAttribute('aria-expanded', 'true');
+      sectionToggleLabel.textContent = 'Hide section breakdown';
+    } else {
+      area.classList.add('section-progress-collapsed');
+      area.setAttribute('hidden', '');
+      sectionToggleBtn.setAttribute('aria-expanded', 'false');
+      sectionToggleLabel.textContent = 'Show section breakdown';
+    }
+  }
 
   // Time
   const total = state.totalStudyTime + getSessionTime();
@@ -2258,6 +2294,28 @@ function renderHome() {
   } else {
     timeEl.textContent = '';
   }
+}
+
+function toggleSectionBreakdown() {
+  const area = document.getElementById('sectionProgressArea');
+  const btn = document.getElementById('sectionToggleBtn');
+  const label = document.getElementById('sectionToggleLabel');
+  if (!area || !btn) return;
+  const isOpen = !area.classList.contains('section-progress-collapsed');
+  if (isOpen) {
+    area.classList.add('section-progress-collapsed');
+    area.setAttribute('hidden', '');
+    btn.setAttribute('aria-expanded', 'false');
+    if (label) label.textContent = 'Show section breakdown';
+  } else {
+    area.classList.remove('section-progress-collapsed');
+    area.removeAttribute('hidden');
+    btn.setAttribute('aria-expanded', 'true');
+    if (label) label.textContent = 'Hide section breakdown';
+  }
+  state.sectionBreakdownOpen = !isOpen;
+  saveState();
+  playSound('click');
 }
 
 function saveName() {
