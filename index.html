@@ -671,8 +671,15 @@ body.night-mode .kairu-egg:hover{opacity:1;filter:drop-shadow(0 0 14px rgba(107,
 /* hover: small pick-me-up hop */
 .kairu-egg:hover #kairuBird{animation:kairuHopUp 560ms ease-out}
 .kairu-egg:hover #kairuShadow{animation:kairuShadowHop 560ms ease-in-out}
-.kairu-tip{position:fixed;bottom:76px;left:14px;background:rgba(15,21,40,.94);color:#BFDFFF;padding:12px 16px;border-radius:14px;font-size:12px;font-weight:600;font-family:'Poppins',sans-serif;letter-spacing:.2px;opacity:0;transform:translateY(6px);transition:opacity .3s,transform .3s;pointer-events:none;z-index:81;max-width:300px;width:max-content;line-height:1.55;white-space:normal;word-wrap:break-word;overflow-wrap:break-word;box-shadow:0 6px 20px rgba(0,0,0,.4);border:1px solid rgba(107,138,232,.35);font-style:italic}
+.kairu-tip{position:fixed;bottom:76px;left:14px;background:rgba(15,21,40,.94);color:#BFDFFF;padding:12px 16px;border-radius:14px;font-size:12px;font-weight:600;font-family:'Poppins',sans-serif;letter-spacing:.2px;opacity:0;transform:translateY(6px);transition:opacity .3s,transform .3s;pointer-events:auto;z-index:81;max-width:300px;width:max-content;line-height:1.55;white-space:normal;word-wrap:break-word;overflow-wrap:break-word;box-shadow:0 6px 20px rgba(0,0,0,.4);border:1px solid rgba(107,138,232,.35);font-style:italic;cursor:grab;touch-action:none;-webkit-user-select:none;user-select:none}
 .kairu-tip.show{opacity:1;transform:translateY(0)}
+/* While hidden, the bubble must not catch the cursor or register hovers — otherwise
+   it sits as an invisible hit-zone at its last position and the cursor "remembers"
+   the old box when hovering nothing. */
+.kairu-tip:not(.show){pointer-events:none;cursor:default}
+.kairu-tip.dismissing{pointer-events:none}
+.kairu-tip.grabbing{cursor:grabbing;transition:none;box-shadow:0 10px 30px rgba(0,0,0,.5)}
+.kairu-tip:active{cursor:grabbing}
 
 /* === Kairu rebuke exit + return (triggered on 4 rapid taps) === */
 @keyframes kairuRebukeExit{
@@ -1913,6 +1920,35 @@ function playSound(name) {
         gain.gain.exponentialRampToValueAtTime(0.001, t + 0.08);
         osc.start(t); osc.stop(t + 0.08);
         break;
+      case 'kairuChirp':
+        // Bright, short, friendly hummingbird 'ping' — triangle wave with upward pitch sweep.
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(880, t);
+        osc.frequency.exponentialRampToValueAtTime(1320, t + 0.04);
+        osc.frequency.exponentialRampToValueAtTime(1100, t + 0.11);
+        gain.gain.setValueAtTime(0.06, t);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.13);
+        osc.start(t); osc.stop(t + 0.14);
+        break;
+      case 'kairuRebuke': {
+        // Inverted/dissonant version of the chirp — sawtooth, detuned pair, descending.
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(360, t);
+        osc.frequency.exponentialRampToValueAtTime(180, t + 0.28);
+        gain.gain.setValueAtTime(0.06, t);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
+        osc.start(t); osc.stop(t + 0.3);
+        const _o2 = audioCtx.createOscillator();
+        const _g2 = audioCtx.createGain();
+        _o2.connect(_g2); _g2.connect(audioCtx.destination);
+        _o2.type = 'sawtooth';
+        _o2.frequency.setValueAtTime(385, t);
+        _o2.frequency.exponentialRampToValueAtTime(192, t + 0.28);
+        _g2.gain.setValueAtTime(0.05, t);
+        _g2.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
+        _o2.start(t); _o2.stop(t + 0.3);
+        break;
+      }
       default:
         osc.frequency.value = 440;
         gain.gain.exponentialRampToValueAtTime(0.001, t + 0.1);
@@ -3554,18 +3590,189 @@ function _scheduleKairuGesture() {
   }, next);
 }
 
+// --- Kairu tip bubble — interactive: pauses on hover/hold, wobbles on drag, flicks to dismiss ---
+let _kairuTipRemaining = 0;
+let _kairuTipStart = 0;
+let _kairuTipListenersBound = false;
+let _kairuTipDrag = null;
+
+function _armKairuTipTimer(ms) {
+  clearTimeout(window._kairuTipT);
+  _kairuTipRemaining = ms;
+  _kairuTipStart = Date.now();
+  window._kairuTipT = setTimeout(_dismissKairuTip, ms);
+}
+function _pauseKairuTipTimer() {
+  if (!window._kairuTipT) return;
+  clearTimeout(window._kairuTipT);
+  window._kairuTipT = null;
+  _kairuTipRemaining = Math.max(0, _kairuTipRemaining - (Date.now() - _kairuTipStart));
+}
+function _resumeKairuTipTimer(minMs) {
+  const ms = Math.max(minMs || 1500, _kairuTipRemaining);
+  _armKairuTipTimer(ms);
+}
+function _dismissKairuTip() {
+  const tip = document.getElementById('kairuTip');
+  if (!tip) return;
+  tip.classList.remove('show', 'grabbing');
+  tip.style.transform = '';
+  tip.style.opacity = '';
+  tip.style.transition = '';
+  clearTimeout(window._kairuTipT);
+  window._kairuTipT = null;
+  _kairuTipRemaining = 0;
+  _kairuTipDrag = null;
+}
+function _flickDismissKairuTip(vx, vy) {
+  const tip = document.getElementById('kairuTip');
+  if (!tip) return;
+  // Mark as dismissing so pointerdown can't re-grab mid-flight
+  tip.classList.add('dismissing');
+  tip.classList.remove('grabbing');
+  const dx = Math.max(-600, Math.min(600, vx * 300));
+  const dy = Math.max(-600, Math.min(600, vy * 300));
+  tip.style.transition = 'transform .32s ease-out, opacity .32s ease-out';
+  tip.style.transform = `translate(${dx}px, ${dy}px) rotate(${dx * 0.04}deg)`;
+  tip.style.opacity = '0';
+  clearTimeout(window._kairuTipT);
+  window._kairuTipT = null;
+  _kairuTipDrag = null;
+  setTimeout(() => {
+    tip.classList.remove('show', 'dismissing');
+    tip.style.transition = '';
+    tip.style.transform = '';
+    tip.style.opacity = '';
+  }, 340);
+}
+
+// Drag tuning constants
+const _KT_MAX_DRAG = 110;          // px — rubber-banding kicks in beyond this radius
+const _KT_DISMISS_DIST = 130;      // px — release past this always dismisses
+const _KT_FLICK_SPEED = 0.85;      // px/ms — release above this dismisses (even if short drag)
+const _KT_SAMPLE_WINDOW = 140;     // ms — rolling window for velocity calc
+
+function _bindKairuTipListeners() {
+  if (_kairuTipListenersBound) return;
+  const tip = document.getElementById('kairuTip');
+  if (!tip) return;
+  _kairuTipListenersBound = true;
+
+  // Desktop hover — pauses the dismiss timer entirely
+  tip.addEventListener('pointerenter', (e) => {
+    if (e.pointerType === 'mouse') _pauseKairuTipTimer();
+  });
+  tip.addEventListener('pointerleave', (e) => {
+    if (e.pointerType === 'mouse' && !(_kairuTipDrag && _kairuTipDrag.active)) {
+      _resumeKairuTipTimer(1800);
+    }
+  });
+
+  // Start the drag on the bubble. Move/up listeners are on window so the drag
+  // always resolves — even if the pointer leaves the bubble or the tab loses focus.
+  tip.addEventListener('pointerdown', (e) => {
+    // Ignore pointerdown if the bubble isn't actually visible / is mid-dismissal.
+    if (!tip.classList.contains('show') || tip.classList.contains('dismissing')) return;
+    if (_kairuTipDrag && _kairuTipDrag.active) return;
+    _pauseKairuTipTimer();
+    _kairuTipDrag = {
+      id: e.pointerId,
+      startX: e.clientX, startY: e.clientY,
+      lastX: e.clientX, lastY: e.clientY,
+      samples: [{ x: e.clientX, y: e.clientY, t: performance.now() }],
+      active: true
+    };
+    tip.classList.add('grabbing');
+    e.preventDefault();
+  });
+
+  function _onMove(e) {
+    const d = _kairuTipDrag;
+    if (!d || !d.active || e.pointerId !== d.id) return;
+    const now = performance.now();
+    d.lastX = e.clientX; d.lastY = e.clientY;
+    // Rolling sample window for stable velocity
+    d.samples.push({ x: e.clientX, y: e.clientY, t: now });
+    while (d.samples.length > 1 && now - d.samples[0].t > _KT_SAMPLE_WINDOW) d.samples.shift();
+    let dx = e.clientX - d.startX;
+    let dy = e.clientY - d.startY;
+    // Rubber-band beyond the max drag radius — harder to pull further
+    const dist = Math.hypot(dx, dy);
+    if (dist > _KT_MAX_DRAG) {
+      const scale = (_KT_MAX_DRAG + (dist - _KT_MAX_DRAG) * 0.28) / dist;
+      dx *= scale; dy *= scale;
+    }
+    const rot = Math.max(-10, Math.min(10, dx * 0.05));
+    tip.style.transform = `translate(${dx}px, ${dy}px) rotate(${rot}deg)`;
+  }
+
+  function _onUp(e) {
+    const d = _kairuTipDrag;
+    if (!d || !d.active) return;
+    if (e.pointerId !== undefined && e.pointerId !== d.id) return;
+    d.active = false;
+    tip.classList.remove('grabbing');
+    // Velocity from the rolling sample window (much more stable than last-event delta)
+    let vx = 0, vy = 0;
+    const s = d.samples;
+    if (s.length >= 2) {
+      const first = s[0], last = s[s.length - 1];
+      const dt = Math.max(1, last.t - first.t);
+      vx = (last.x - first.x) / dt;
+      vy = (last.y - first.y) / dt;
+    }
+    const totalDist = Math.hypot(d.lastX - d.startX, d.lastY - d.startY);
+    const speed = Math.hypot(vx, vy);
+    // Dismiss if: quick flick OR dragged far enough to have clearly "committed"
+    if (speed > _KT_FLICK_SPEED || totalDist > _KT_DISMISS_DIST) {
+      // Use velocity if meaningful; else fall back to drag direction
+      const fvx = Math.abs(vx) > 0.05 ? vx : (d.lastX - d.startX) / 250;
+      const fvy = Math.abs(vy) > 0.05 ? vy : (d.lastY - d.startY) / 250;
+      _flickDismissKairuTip(fvx, fvy);
+      _kairuTipDrag = null;
+      return;
+    }
+    // Snap back cleanly — grabbing class removed first so the transition applies
+    tip.style.transition = 'transform .4s cubic-bezier(.22,1,.36,1)';
+    tip.style.transform = '';
+    setTimeout(() => { tip.style.transition = ''; }, 440);
+    _resumeKairuTipTimer(2200);
+    _kairuTipDrag = null;
+  }
+
+  // Global handlers so drag always resolves, even off the bubble / off-screen
+  window.addEventListener('pointermove', _onMove, { passive: true });
+  window.addEventListener('pointerup', _onUp);
+  window.addEventListener('pointercancel', _onUp);
+  // Safety nets: if the window loses focus / tab hides mid-drag, end the drag cleanly
+  window.addEventListener('blur', () => { if (_kairuTipDrag && _kairuTipDrag.active) _onUp({ pointerId: _kairuTipDrag.id }); });
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden && _kairuTipDrag && _kairuTipDrag.active) _onUp({ pointerId: _kairuTipDrag.id });
+  });
+
+  // Escape to dismiss on desktop
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && tip.classList.contains('show')) _dismissKairuTip();
+  });
+}
+
 function kairuWhisper() {
   const tip = document.getElementById('kairuTip');
   if (!tip) return;
+  _bindKairuTipListeners();
+  // Reset any lingering flick transform
+  tip.style.transition = '';
+  tip.style.transform = '';
+  tip.style.opacity = '';
   const line = KAIRU_LINES[Math.floor(Math.random() * KAIRU_LINES.length)];
-  // render with line breaks (haiku / limericks have \n)
   tip.innerHTML = line.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/\n/g,'<br>');
   tip.classList.add('show');
   kairuHopOnce();
-  clearTimeout(window._kairuTipT);
-  // longer dwell for multi-line entries
-  const dwell = line.indexOf('\n') >= 0 ? 7200 : 4400;
-  window._kairuTipT = setTimeout(() => tip.classList.remove('show'), dwell);
+  // Length-scaled dwell — long haikus & limericks get proportionally more reading time.
+  // Base 2.6s + 70ms/char, clamped between 4s and 16s.
+  const chars = line.length;
+  const dwell = Math.min(16000, Math.max(4000, 2600 + chars * 70));
+  _armKairuTipTimer(dwell);
 }
 
 // ============================================================
@@ -3603,14 +3810,16 @@ function kairuTapped() {
     return;
   }
 
-  // Rebuke on 4+ taps within 6s window
+  // Rebuke on 4+ taps within 6s window — play the inverted/negative sound
   if (_rebukeWindow.length >= 4) {
+    playSound('kairuRebuke');
     _rebukeWindow = [];
     _doKairuRebuke();
     return;
   }
 
-  // Otherwise: normal whisper
+  // Taps 1–3: soft friendly chirp + whisper
+  playSound('kairuChirp');
   kairuWhisper();
 }
 
