@@ -1,0 +1,26 @@
+{
+  "name": "CSEC Physics Formula Mastery",
+  "short_name": "Formula Mastery",
+  "description": "Master every CSEC Physics formula — by Kerwin Springer · Student Hub.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#E8F0FE",
+  "theme_color": "#2B4C7E",
+  "lang": "en",
+  "icons": [
+    {
+      "src": "icon-512.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-512.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "maskable"
+    }
+  ]
+}
