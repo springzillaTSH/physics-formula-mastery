@@ -10,7 +10,7 @@
 //
 // Bump CACHE on every non-trivial deploy so clients cleanly re-fetch the shell.
 
-const CACHE = 'formula-mastery-v3';
+const CACHE = 'formula-mastery-v4';
 
 const STATIC_SHELL = [
   './manifest.webmanifest',
